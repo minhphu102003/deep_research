@@ -66,7 +66,7 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
     # model_config = {
     #     "model": "models/gemini-1.5-flash", 
     #     "max_tokens": 8192,
-    #     "api_key": "AIzaSyBcm_h3sKfZMrk_s2Vtz6vnVLqd1vb2fE0", 
+    #     "api_key": "api_key", 
     #     "tags": ["langsmith:nostream"]
     # }
     # # model = configurable_model.with_structured_output(ClarifyWithUser).with_retry(stop_after_attempt=configurable.max_structured_output_retries).with_config(model_config)
