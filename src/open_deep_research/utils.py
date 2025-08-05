@@ -3,6 +3,7 @@ import aiohttp
 import asyncio
 import logging
 import warnings
+import platform
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, List, Literal, Dict, Optional, Any
 from langchain_core.tools import BaseTool, StructuredTool, tool, ToolException, InjectedToolArg
@@ -17,7 +18,14 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from open_deep_research.state import Summary, ResearchComplete
 from open_deep_research.configuration import SearchAPI, Configuration
 from open_deep_research.prompts import summarize_webpage_prompt
+from langchain_community.chat_models import ChatGooglePalm
 
+def get_chat_model(model: str, api_key: str, max_tokens: int):
+    return ChatGooglePalm(
+        model=model,
+        google_api_key=api_key,
+        max_output_tokens=max_tokens,
+    )
 
 ##########################
 # Tavily Search Tool Utils
@@ -429,6 +437,8 @@ MODEL_TOKEN_LIMITS = {
     "ollama:llama2:13b": 4096,
     "ollama:llama2": 4096,
     "ollama:mistral": 32768,
+    "google:models/gemini-1.5-flash": 1048576,
+    "google:models/gemini-1.5-pro": 2097152,
 }
 
 def get_model_token_limit(model_string):
@@ -448,7 +458,10 @@ def remove_up_to_last_ai_message(messages: list[MessageLikeRepresentation]) -> l
 ##########################
 def get_today_str() -> str:
     """Get current date in a human-readable format."""
-    return datetime.now().strftime("%a %b %-d, %Y")
+    if platform.system() == "Windows":
+        return datetime.now().strftime("%a %b %#d, %Y")
+    else:
+        return datetime.now().strftime("%a %b %-d, %Y")
 
 def get_config_value(value):
     if value is None:
@@ -461,27 +474,11 @@ def get_config_value(value):
         return value.value
 
 def get_api_key_for_model(model_name: str, config: RunnableConfig):
-    should_get_from_config = os.getenv("GET_API_KEYS_FROM_CONFIG", "false")
-    model_name = model_name.lower()
-    if should_get_from_config.lower() == "true":
-        api_keys = config.get("configurable", {}).get("apiKeys", {})
-        if not api_keys:
-            return None
-        if model_name.startswith("openai:"):
-            return api_keys.get("OPENAI_API_KEY")
-        elif model_name.startswith("anthropic:"):
-            return api_keys.get("ANTHROPIC_API_KEY")
-        elif model_name.startswith("google"):
-            return api_keys.get("GOOGLE_API_KEY")
-        return None
-    else:
-        if model_name.startswith("openai:"): 
-            return os.getenv("OPENAI_API_KEY")
-        elif model_name.startswith("anthropic:"):
-            return os.getenv("ANTHROPIC_API_KEY")
-        elif model_name.startswith("google"):
-            return os.getenv("GOOGLE_API_KEY")
-        return None
+    api_keys = config.get("configurable", {}).get("apiKeys", {})
+    return api_keys.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+def get_api_key_for_gemini():
+    return os.getenv("GOOGLE_API_KEY")
 
 def get_tavily_api_key(config: RunnableConfig):
     should_get_from_config = os.getenv("GET_API_KEYS_FROM_CONFIG", "false")
