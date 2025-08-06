@@ -19,6 +19,15 @@ from open_deep_research.state import Summary, ResearchComplete
 from open_deep_research.configuration import SearchAPI, Configuration
 from open_deep_research.prompts import summarize_webpage_prompt
 from langchain_community.chat_models import ChatGooglePalm
+from src.mcp_server.tools.google_search import  (
+    search_serpapi,
+    search_autocomplete,
+    search_google_scholar,
+    search_duckduckgo,
+    search_bing,
+    search_baidu,
+    search_walmart,
+)
 
 def get_chat_model(model: str, api_key: str, max_tokens: int):
     return ChatGooglePalm(
@@ -293,13 +302,27 @@ async def get_search_tool(search_api: SearchAPI):
         return [search_tool]
     elif search_api == SearchAPI.NONE:
         return []
-    
+
+# ! Just use mcp tool 
 async def get_all_tools(config: RunnableConfig):
-    tools = [tool(ResearchComplete)]
+    # tools = [tool(ResearchComplete)]
     configurable = Configuration.from_runnable_config(config)
-    search_api = SearchAPI(get_config_value(configurable.search_api))
-    tools.extend(await get_search_tool(search_api))
-    existing_tool_names = {tool.name if hasattr(tool, "name") else tool.get("name", "web_search") for tool in tools}
+    # search_api = SearchAPI(get_config_value(configurable.search_api))
+    # tools.extend(await get_search_tool(search_api))
+    # existing_tool_names = {tool.name if hasattr(tool, "name") else tool.get("name", "web_search") for tool in tools}
+    # mcp_tools = await load_mcp_tools(config, existing_tool_names)
+    # tools.extend(mcp_tools)
+    # return tools
+    tools = [
+        search_serpapi,
+        search_autocomplete,
+        search_google_scholar,
+        search_duckduckgo,
+        search_bing,
+        search_baidu,
+        search_walmart
+    ]
+    existing_tool_names = {tool.name for tool in tools}
     mcp_tools = await load_mcp_tools(config, existing_tool_names)
     tools.extend(mcp_tools)
     return tools

@@ -43,6 +43,7 @@ dependencies = [
     "ipykernel>=6.29.5",
     "supabase>=2.15.3",
     "mcp>=1.9.4",
+    "serpapi<=0.1.5",
 ]
 
 [project.optional-dependencies]

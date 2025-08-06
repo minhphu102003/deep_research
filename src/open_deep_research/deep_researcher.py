@@ -1,5 +1,5 @@
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage, get_buffer_string, filter_messages
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage, BaseMessage, get_buffer_string, filter_messages
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import START, END, StateGraph
 from langgraph.types import Command
@@ -43,7 +43,6 @@ from open_deep_research.utils import (
 )
 from functools import partial
 from langchain_google_genai import ChatGoogleGenerativeAI
-import re
 
 def init_chat_model(model: str, max_tokens: int, api_key: str) -> ChatGoogleGenerativeAI:
     return ChatGoogleGenerativeAI(
@@ -53,7 +52,7 @@ def init_chat_model(model: str, max_tokens: int, api_key: str) -> ChatGoogleGene
         convert_system_message_to_human=True
     )
 
-default_model_config = partial(init_chat_model, model="models/gemini-1.5-flash", max_tokens=2048, api_key=get_api_key_for_gemini)
+default_model_config = partial(init_chat_model, model="models/gemini-2.5-flash", max_tokens=2048, api_key=get_api_key_for_gemini())
 
 async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "__end__"]]:
     configurable = Configuration.from_runnable_config(config)
@@ -61,20 +60,6 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
     if not configurable.allow_clarification:
         return Command(goto="write_research_brief")
     messages = state["messages"]
-    # model_name = configurable.research_model or "models/gemini-1.5-flash"
-    # max_tokens = configurable.research_model_max_tokens or 8192 
-    # model_config = {
-    #     "model": "models/gemini-1.5-flash", 
-    #     "max_tokens": 8192,
-    #     "api_key": "api_key", 
-    #     "tags": ["langsmith:nostream"]
-    # }
-    # # model = configurable_model.with_structured_output(ClarifyWithUser).with_retry(stop_after_attempt=configurable.max_structured_output_retries).with_config(model_config)
-    # # response = await model.ainvoke([HumanMessage(content=clarify_with_user_instructions.format(messages=get_buffer_string(messages), date=get_today_str()))])
-
-    # model = configurable_model.with_retry(
-    #     stop_after_attempt=configurable.max_structured_output_retries
-    # ).with_config(model_config)
 
     model = default_model_config()
 
@@ -105,11 +90,6 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
 async def write_research_brief(state: AgentState, config: RunnableConfig)-> Command[Literal["research_supervisor"]]:
     configurable = Configuration.from_runnable_config(config)
     model = default_model_config()
-    # research_model = configurable_model.with_structured_output(ResearchQuestion).with_retry(stop_after_attempt=configurable.max_structured_output_retries).with_config(research_model_config)
-    # response = await research_model.ainvoke([HumanMessage(content=transform_messages_into_research_topic_prompt.format(
-    #     messages=get_buffer_string(state.get("messages", [])),
-    #     date=get_today_str()
-    # ))])
 
     model = model.with_structured_output(ResearchQuestion).with_retry(
         stop_after_attempt=configurable.max_structured_output_retries
@@ -122,6 +102,8 @@ async def write_research_brief(state: AgentState, config: RunnableConfig)-> Comm
             date=get_today_str()
         ))
     ])
+    print(response.research_brief)
+
     return Command(
         goto="research_supervisor", 
         update={
@@ -142,17 +124,6 @@ async def write_research_brief(state: AgentState, config: RunnableConfig)-> Comm
 
 async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[Literal["supervisor_tools"]]:
     configurable = Configuration.from_runnable_config(config)
-    # research_model_config = {
-    #     "model": configurable.research_model,
-    #     "max_tokens": configurable.research_model_max_tokens,
-    #     "api_key": get_api_key_for_model(configurable.research_model, config),
-    #     "tags": ["langsmith:nostream"]
-    # }
-    # lead_researcher_tools = [ConductResearch, ResearchComplete]
-    # research_model = configurable_model.bind_tools(lead_researcher_tools).with_retry(stop_after_attempt=configurable.max_structured_output_retries).with_config(research_model_config)
-
-    # supervisor_messages = state.get("supervisor_messages", [])
-    # response = await research_model.ainvoke(supervisor_messages)
     model = default_model_config()
     lead_researcher_tools = [ConductResearch, ResearchComplete]
     research_model = model.bind_tools(lead_researcher_tools).with_retry(
@@ -165,7 +136,7 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
     return Command(
         goto="supervisor_tools",
         update={
-            "supervisor_messages": [response],
+            "supervisor_messages": supervisor_messages + [response],
             "research_iterations": state.get("research_iterations", 0) + 1
         }
     )
@@ -225,9 +196,9 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
         return Command(
             goto="supervisor",
             update={
-                "supervisor_messages": tool_messages,
+                "supervisor_messages": supervisor_messages + tool_messages,
                 "raw_notes": [raw_notes_concat],
-                "subagents": subagents
+                "subagents": subagents,
             }
         )
     except Exception as e:
@@ -244,7 +215,6 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
         )
 
 supervisor_builder = StateGraph(SupervisorState, config_schema=Configuration)
-
 supervisor_builder.add_node("supervisor", supervisor)
 supervisor_builder.add_node("supervisor_tools", supervisor_tools)
 
@@ -258,6 +228,7 @@ supervisor_subgraph = supervisor_builder.compile()
 
 async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[Literal["researcher_tools"]]:
     configurable = Configuration.from_runnable_config(config)
+
     researcher_messages = state.get("researcher_messages", [])
     tools = await get_all_tools(config)
 
@@ -402,19 +373,25 @@ researcher_subgraph = researcher_builder.compile()
 async def check_loop_condition(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "final_report_generation"]]:
     findings = state.get("raw_notes", [])
     subagents = state.get("subagents", [])
+    loop_count = state.get("loop_count", 0)
 
     enough_findings = len(findings) >= 3 and all(len(note.strip()) > 500 for note in findings)
     enough_subagents = len(set(subagents)) >= 2
-
     subagent_covered = all(
         any(subagent.lower() in note.lower() for note in findings)
         for subagent in subagents
     ) if subagents else False
 
+    if loop_count >= 3:
+        print("Max retry reached. Exiting loop.")
+        return Command(goto="final_report_generation")
+
     if enough_findings and enough_subagents and subagent_covered:
         return Command(goto="final_report_generation")
     else:
+        state["loop_count"] = loop_count + 1
         return Command(goto="write_research_brief")
+
 
 
 async def final_report_generation(state: AgentState, config: RunnableConfig):

@@ -58,6 +58,7 @@ class AgentState(MessagesState):
     notes: Annotated[list[str], override_reducer] = []
     final_report: str
     subagents: Annotated[list[str], override_reducer] = []
+    loop_count: Annotated[int, override_reducer] = 0
 
 class SupervisorState(TypedDict):
     supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
