@@ -5,7 +5,10 @@ from schemas.weather_schema import (
     ForecastWeatherInput,
     WeatherForecastResult
 )
-from services.weather_service import get_weather, get_weather_forecast
+from services.weather_service import (
+    get_weather, 
+    get_weather_forecast as get_weather_forecast_service
+)
 
 @tool(args_schema=CurrentWeatherInput)
 def get_current_weather(location: str, unit: str = "c") -> WeatherResult:
@@ -15,4 +18,4 @@ def get_current_weather(location: str, unit: str = "c") -> WeatherResult:
 @tool(args_schema=ForecastWeatherInput)
 def get_weather_forecast(location: str, days: int = 3, unit: str = "c") -> WeatherForecastResult:
     """Get the weather forecast for a location for the next 1–7 days."""
-    return get_weather_forecast(location, days, unit)
+    return get_weather_forecast_service(location, days, unit)

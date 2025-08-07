@@ -19,7 +19,7 @@ from open_deep_research.state import Summary, ResearchComplete
 from open_deep_research.configuration import SearchAPI, Configuration
 from open_deep_research.prompts import summarize_webpage_prompt
 from langchain_community.chat_models import ChatGooglePalm
-from src.mcp_server.tools.google_search import  (
+from mcp_server.tools.google_search import  (
     search_serpapi,
     search_autocomplete,
     search_google_scholar,
@@ -27,6 +27,10 @@ from src.mcp_server.tools.google_search import  (
     search_bing,
     search_baidu,
     search_walmart,
+)
+from mcp_server.tools.weather import (
+    get_current_weather,
+    get_weather_forecast
 )
 
 def get_chat_model(model: str, api_key: str, max_tokens: int):
@@ -320,7 +324,9 @@ async def get_all_tools(config: RunnableConfig):
         search_duckduckgo,
         search_bing,
         search_baidu,
-        search_walmart
+        search_walmart,
+        get_current_weather,
+        get_weather_forecast
     ]
     existing_tool_names = {tool.name for tool in tools}
     mcp_tools = await load_mcp_tools(config, existing_tool_names)

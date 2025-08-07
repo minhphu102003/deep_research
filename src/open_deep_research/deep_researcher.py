@@ -256,13 +256,37 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
             HumanMessage(content="Please begin the research on the given topic.")
         ]
 
-    response = await research_model.ainvoke(prompt_messages)
+    tools_dict = {tool.name: tool for tool in tools}
+    response: AIMessage = await research_model.ainvoke(prompt_messages)
+    tool_calls = getattr(response, "tool_calls", None)
+    print("Tool calls:", tool_calls)
+    tool_call_log = []
+
+    if tool_calls:
+        for tool in tool_calls:
+            tool_name = tool["name"]
+            tool_args = tool["args"]
+            if tool_name not in tools_dict:
+                raise ValueError(f"Tool '{tool_name}' not found.")
+            if "result" in tool:
+                tool_result = tool["result"]
+            else:
+                tool_result = await tools_dict[tool_name].ainvoke(tool_args)
+            tool_call_log.append({
+                "name": tool["name"],
+                "arguments": tool["args"],
+                "result": tool_result
+            })
+    
+    #### !Debug ###
+    print(state.get("tool_call_history", []) + tool_call_log)
 
     return Command(
         goto="researcher_tools",
         update={
             "researcher_messages": [response],
-            "tool_call_iterations": state.get("tool_call_iterations", 0) + 1
+            "tool_call_iterations": state.get("tool_call_iterations", 0) + 1,
+            "tool_call_history": state.get("tool_call_history", []) + tool_call_log
         }
     )
 

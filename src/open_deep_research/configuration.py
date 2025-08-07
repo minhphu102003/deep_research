@@ -199,8 +199,15 @@ class Configuration(BaseModel):
             }
         }
     )
-    mcp_prompt: Optional[str] = Field(
-        default=None,
+    mcp_prompt: Optional[str] = Field(  
+            default=(
+                "You are provided with function signatures within <tools></tools> XML tags.\n"
+                "When calling a tool, respond using this exact format:\n\n"
+                "<tool_call>\n"
+                '{"name": "ToolName", "arguments": {"arg1": "value1"}}\n'
+                "</tool_call>\n\n"
+                "Do not return anything else outside of <tool_call>. Always return only ONE tool call per turn."
+            ),
         optional=True,
         metadata={
             "x_oap_ui_config": {

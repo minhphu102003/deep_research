@@ -59,6 +59,7 @@ class AgentState(MessagesState):
     final_report: str
     subagents: Annotated[list[str], override_reducer] = []
     loop_count: Annotated[int, override_reducer] = 0
+    tool_call_history: Annotated[list[dict], override_reducer] = []
 
 class SupervisorState(TypedDict):
     supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
@@ -67,6 +68,7 @@ class SupervisorState(TypedDict):
     research_iterations: int = 0
     raw_notes: Annotated[list[str], override_reducer] = []
     subagents: Annotated[list[str], override_reducer] = []
+    tool_call_history: Annotated[list[dict], override_reducer] = []
 
 class ResearcherState(TypedDict):
     researcher_messages: Annotated[list[MessageLikeRepresentation], operator.add]
@@ -75,8 +77,10 @@ class ResearcherState(TypedDict):
     compressed_research: str
     raw_notes: Annotated[list[str], override_reducer] = []
     subagents: Annotated[list[str], override_reducer] = []
+    tool_call_history: Annotated[list[dict], override_reducer] = []
 
 class ResearcherOutputState(BaseModel):
     compressed_research: str
     raw_notes: Annotated[list[str], override_reducer] = []
+    tool_call_history: Annotated[list[dict], override_reducer] = []
     
