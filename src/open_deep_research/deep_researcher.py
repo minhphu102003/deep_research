@@ -6,7 +6,8 @@ from langgraph.types import Command
 import asyncio
 from typing import Literal
 from open_deep_research.configuration import (
-    Configuration, 
+    Configuration,
+    MCPConfig, 
 )
 import json
 from typing import Literal
@@ -229,8 +230,23 @@ supervisor_subgraph = supervisor_builder.compile()
 async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[Literal["researcher_tools"]]:
     configurable = Configuration.from_runnable_config(config)
 
+    updated_config = {
+        **config,
+        "configurable": {
+            **config.get("configurable", {}),
+            "mcp_config": MCPConfig(
+                mode="http",
+                url="http://localhost:8000",
+                path_prefix="/mcp/",
+                tools=["smart_search", "tavily_search"],
+            ),
+        },
+    }
+
     researcher_messages = state.get("researcher_messages", [])
-    tools = await get_all_tools(config)
+    tools = await get_all_tools(updated_config)
+    
+    print([t.name for t in tools])
 
     if not tools:
         raise ValueError("No tools found to conduct research: Please configure either your search API or add MCP tools to your configuration.")
@@ -278,7 +294,6 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
                 "result": tool_result
             })
     
-    #### !Debug ###
     print(state.get("tool_call_history", []) + tool_call_log)
 
     return Command(

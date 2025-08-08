@@ -5,7 +5,7 @@ import logging
 import warnings
 import platform
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, List, Literal, Dict, Optional, Any
+from typing import Annotated, List, Literal, Dict, Optional, Any, Set
 from langchain_core.tools import BaseTool, StructuredTool, tool, ToolException, InjectedToolArg
 from langchain_core.messages import HumanMessage, AIMessage, MessageLikeRepresentation, filter_messages
 from langchain_core.runnables import RunnableConfig
@@ -255,40 +255,90 @@ def wrap_mcp_authenticate_tool(tool: StructuredTool) -> StructuredTool:
 
 async def load_mcp_tools(
     config: RunnableConfig,
-    existing_tool_names: set[str],
-) -> list[BaseTool]:
+    existing_tool_names: Set[str],
+) -> List[BaseTool]:
     configurable = Configuration.from_runnable_config(config)
-    if configurable.mcp_config and configurable.mcp_config.auth_required:
-        mcp_tokens = await fetch_tokens(config)
-    else:
-        mcp_tokens = None
-    if not (configurable.mcp_config and configurable.mcp_config.url and configurable.mcp_config.tools and (mcp_tokens or not configurable.mcp_config.auth_required)):
+    mcp_cfg = configurable.mcp_config
+
+#   ===== RETURN FIRST ======
+    if not (mcp_cfg and mcp_cfg.tools):
         return []
-    tools = []
-    # TODO: When the Multi-MCP Server support is merged in OAP, update this code.
-    server_url = configurable.mcp_config.url.rstrip("/") + "/mcp"
-    mcp_server_config = {
-        "server_1":{
-            "url": server_url,
-            "headers": {"Authorization": f"Bearer {mcp_tokens['access_token']}"} if mcp_tokens else None,
-            "transport": "streamable_http"
+
+    mcp_tokens = None
+    if mcp_cfg.auth_required:
+        mcp_tokens = await fetch_tokens(config) 
+
+    mcp_server_config: dict
+
+    # print("DEBUG 1")
+
+    if mcp_cfg.mode == "http":
+        if not mcp_cfg.url:
+            return []
+        base = mcp_cfg.url.rstrip("/")
+        prefix = mcp_cfg.path_prefix if mcp_cfg.path_prefix.startswith("/") else f"/{mcp_cfg.path_prefix}"
+        server_url = f"{base}{prefix}" 
+        if not server_url.endswith("/"):
+            server_url += "/"
+        # print("DEBUG 2")
+
+        headers = dict(mcp_cfg.headers or {})
+        if mcp_tokens:
+            headers["Authorization"] = f"Bearer {mcp_tokens['access_token']}"
+
+        mcp_server_config = {
+            "server_1": {
+                "url": server_url,
+                "headers": headers or None,
+                "transport": "streamable_http",
+            }
         }
-    }
+
+    elif mcp_cfg.mode == "stdio":
+        if not mcp_cfg.command:
+            return []
+        mcp_server_config = {
+            "server_1": {
+                "command": mcp_cfg.command,  
+                "env": mcp_cfg.env or None,
+                "transport": "stdio",
+            }
+        }
+
+    else:
+        warnings.warn(f"Unsupported MCP mode: {mcp_cfg.mode}")
+        return []
+    # print("DEBUG 3")
+
     try:
         client = MultiServerMCPClient(mcp_server_config)
         mcp_tools = await client.get_tools()
+        # print(mcp_tools)
     except Exception as e:
         print(f"Error loading MCP tools: {e}")
         return []
+
+    # print("DEBUG 4")
+
+    tools: List[BaseTool] = []
+    allowlist = set(mcp_cfg.tools)
+
+    # print(allowlist)
+
     for tool in mcp_tools:
         if tool.name in existing_tool_names:
             warnings.warn(
                 f"Trying to add MCP tool with a name {tool.name} that is already in use - this tool will be ignored."
             )
             continue
-        if tool.name not in set(configurable.mcp_config.tools):
+        if tool.name not in allowlist:
             continue
         tools.append(wrap_mcp_authenticate_tool(tool))
+
+    # print("DEBUG 5")
+
+    # print(tools)
+
     return tools
 
 
@@ -309,14 +359,7 @@ async def get_search_tool(search_api: SearchAPI):
 
 # ! Just use mcp tool 
 async def get_all_tools(config: RunnableConfig):
-    # tools = [tool(ResearchComplete)]
     configurable = Configuration.from_runnable_config(config)
-    # search_api = SearchAPI(get_config_value(configurable.search_api))
-    # tools.extend(await get_search_tool(search_api))
-    # existing_tool_names = {tool.name if hasattr(tool, "name") else tool.get("name", "web_search") for tool in tools}
-    # mcp_tools = await load_mcp_tools(config, existing_tool_names)
-    # tools.extend(mcp_tools)
-    # return tools
     tools = [
         search_serpapi,
         search_autocomplete,
@@ -328,6 +371,8 @@ async def get_all_tools(config: RunnableConfig):
         get_current_weather,
         get_weather_forecast
     ]
+    # tools = [tool(ResearchComplete)]
+    # search_api = SearchAPI(get_config_value(configurable.search_api))
     existing_tool_names = {tool.name for tool in tools}
     mcp_tools = await load_mcp_tools(config, existing_tool_names)
     tools.extend(mcp_tools)

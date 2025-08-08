@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from langchain_core.runnables import RunnableConfig
 import os
 from enum import Enum
@@ -11,21 +11,43 @@ class SearchAPI(Enum):
     NONE = "none"
 
 class MCPConfig(BaseModel):
+    mode: Literal["http", "stdio"] = Field(
+        default="http",
+        description="Transport mode: 'http' for HTTP/SSE, 'stdio' for stdio-based MCP server",
+    )
+
+    # --- HTTP/SSE ---
     url: Optional[str] = Field(
         default=None,
-        optional=True,
+        description="Base URL of the MCP server (e.g., http://localhost:8000) for HTTP/SSE mode",
     )
-    """The URL of the MCP server"""
+    path_prefix: str = Field(
+        default="/mcp",
+        description="Path prefix for MCP endpoints when using HTTP/SSE (e.g., /mcp)",
+    )
+    headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Additional HTTP headers to send with requests in HTTP/SSE mode",
+    )
+    auth_required: bool = Field(
+        default=False,
+        description="Whether authentication is required when connecting to MCP server",
+    )
+
+    # --- STDIO ---
+    command: Optional[List[str]] = Field(
+        default=None,
+        description="Command to launch the MCP server in stdio mode (e.g., ['python', '-m', 'mcp_server'])",
+    )
+    env: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Optional environment variables to set when running MCP server in stdio mode",
+    )
+
     tools: Optional[List[str]] = Field(
         default=None,
-        optional=True,
+        description="List of MCP tool names to make available to the LLM",
     )
-    """The tools to make available to the LLM"""
-    auth_required: Optional[bool] = Field(
-        default=False,
-        optional=True,
-    )
-    """Whether the MCP server requires authentication"""
 
 class Configuration(BaseModel):
     # General Configuration
@@ -200,14 +222,24 @@ class Configuration(BaseModel):
         }
     )
     mcp_prompt: Optional[str] = Field(  
-            default=(
-                "You are provided with function signatures within <tools></tools> XML tags.\n"
-                "When calling a tool, respond using this exact format:\n\n"
-                "<tool_call>\n"
-                '{"name": "ToolName", "arguments": {"arg1": "value1"}}\n'
-                "</tool_call>\n\n"
-                "Do not return anything else outside of <tool_call>. Always return only ONE tool call per turn."
-            ),
+        default=(
+            "You are provided with function signatures within <tools></tools> XML tags.\n"
+            "When calling a tool, respond using this exact format:\n\n"
+            "<tool_call>\n"
+            '{"name": "ToolName", "arguments": {"arg1": "value1"}}\n'
+            "</tool_call>\n\n"
+            "Rules:\n"
+            "- Return exactly ONE tool call per turn.\n"
+            "- Do NOT include any text outside <tool_call> ... </tool_call>.\n"
+            "- Arguments MUST match the tool's input schema.\n\n"
+            "Tool selection policy:\n"
+            '- Prefer \"smart_search\" for research-type queries that need rewriting, multi-source web search, scraping, summarization, or stateful history.\n'
+            '- Prefer \"tavily_search\" for quick lookups or when the user only needs raw links.\n'
+            "- If uncertain, default to \"tavily_search\".\n\n"
+            "Argument hints:\n"
+            "- smart_search requires: session_id (string), query (string). Optional: prefer_academic, time_range, extra_sites, filetype_pdf, target_language.\n"
+            "- tavily_search requires: query (string).\n"
+        ),
         optional=True,
         metadata={
             "x_oap_ui_config": {
