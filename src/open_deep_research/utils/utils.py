@@ -172,6 +172,33 @@ async def get_mcp_access_token(
         logging.error(f"Error during token exchange: {e}")
     return None
 
+@tool(description="Strategic reflection tool for research planning")
+def think_tool(reflection: str) -> str:
+    """Tool for strategic reflection on research progress and decision-making.
+
+    Use this tool after each search to analyze results and plan next steps systematically.
+    This creates a deliberate pause in the research workflow for quality decision-making.
+
+    When to use:
+    - After receiving search results: What key information did I find?
+    - Before deciding next steps: Do I have enough to answer comprehensively?
+    - When assessing research gaps: What specific information am I still missing?
+    - Before concluding research: Can I provide a complete answer now?
+
+    Reflection should address:
+    1. Analysis of current findings - What concrete information have I gathered?
+    2. Gap assessment - What crucial information is still missing?
+    3. Quality evaluation - Do I have sufficient evidence/examples for a good answer?
+    4. Strategic decision - Should I continue searching or provide my answer?
+
+    Args:
+        reflection: Your detailed reflection on research progress, findings, gaps, and next steps
+
+    Returns:
+        Confirmation that reflection was recorded for decision-making
+    """
+    return f"Reflection recorded: {reflection}"
+
 async def get_tokens(config: RunnableConfig):
     store = get_store()
     thread_id = config.get("configurable", {}).get("thread_id")
@@ -270,8 +297,6 @@ async def load_mcp_tools(
 
     mcp_server_config: dict
 
-    # print("DEBUG 1")
-
     if mcp_cfg.mode == "http":
         if not mcp_cfg.url:
             return []
@@ -280,7 +305,6 @@ async def load_mcp_tools(
         server_url = f"{base}{prefix}" 
         if not server_url.endswith("/"):
             server_url += "/"
-        # print("DEBUG 2")
 
         headers = dict(mcp_cfg.headers or {})
         if mcp_tokens:
@@ -308,22 +332,16 @@ async def load_mcp_tools(
     else:
         warnings.warn(f"Unsupported MCP mode: {mcp_cfg.mode}")
         return []
-    # print("DEBUG 3")
 
     try:
         client = MultiServerMCPClient(mcp_server_config)
         mcp_tools = await client.get_tools()
-        # print(mcp_tools)
     except Exception as e:
         print(f"Error loading MCP tools: {e}")
         return []
 
-    # print("DEBUG 4")
-
     tools: List[BaseTool] = []
     allowlist = set(mcp_cfg.tools)
-
-    # print(allowlist)
 
     for tool in mcp_tools:
         if tool.name in existing_tool_names:
@@ -334,10 +352,6 @@ async def load_mcp_tools(
         if tool.name not in allowlist:
             continue
         tools.append(wrap_mcp_authenticate_tool(tool))
-
-    # print("DEBUG 5")
-
-    # print(tools)
 
     return tools
 
@@ -553,6 +567,9 @@ def get_api_key_for_model(model_name: str, config: RunnableConfig):
 
 def get_api_key_for_gemini():
     return os.getenv("GOOGLE_API_KEY")
+
+def get_api_key_for_openai():
+    return os.getenv("OPENAI_API_KEY")
 
 def get_tavily_api_key(config: RunnableConfig):
     should_get_from_config = os.getenv("GET_API_KEYS_FROM_CONFIG", "false")

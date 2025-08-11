@@ -1,6 +1,6 @@
 import requests
 from schemas.weather_schema import WeatherResult, WeatherForecastResult, WeatherForecast
-from open_deep_research.api_keys import (
+from open_deep_research.utils.api_keys import (
     ApiKeyEnvVar,
     get_api_key
 )

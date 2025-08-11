@@ -61,6 +61,14 @@ class AgentState(MessagesState):
     loop_count: Annotated[int, override_reducer] = 0
     tool_call_history: Annotated[list[dict], override_reducer] = []
 
+    sections: Annotated[list[dict], operator.add] = []          
+    completed_sections: Annotated[list[dict], operator.add] = []
+    knowledge_gaps: Annotated[list[str], operator.add] = []     
+    replan_count: Annotated[int, operator.add] = 0 
+    references: Annotated[list[dict], operator.add] = []  
+    report_title: str = ""                                  
+    report_summary: str = ""   
+
 class SupervisorState(TypedDict):
     supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
     research_brief: str

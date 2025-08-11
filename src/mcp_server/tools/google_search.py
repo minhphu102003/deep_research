@@ -1,7 +1,7 @@
 from langchain_core.tools import tool
 import serpapi
 
-from open_deep_research.api_keys import (
+from open_deep_research.utils.api_keys import (
     get_api_key,
     ApiKeyEnvVar
 )

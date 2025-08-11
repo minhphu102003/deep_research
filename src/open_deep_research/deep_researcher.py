@@ -1,4 +1,3 @@
-from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage, BaseMessage, get_buffer_string, filter_messages
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import START, END, StateGraph
@@ -31,7 +30,7 @@ from open_deep_research.prompts import (
     final_report_generation_prompt,
     lead_researcher_prompt
 )
-from open_deep_research.utils import (
+from open_deep_research.utils.utils import (
     get_today_str,
     is_token_limit_exceeded,
     get_model_token_limit,
@@ -39,21 +38,12 @@ from open_deep_research.utils import (
     openai_websearch_called,
     anthropic_websearch_called,
     remove_up_to_last_ai_message,
-    get_api_key_for_gemini,
     get_notes_from_tool_calls,
+    think_tool
 )
-from functools import partial
+from open_deep_research.utils.model import default_model_config
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-def init_chat_model(model: str, max_tokens: int, api_key: str) -> ChatGoogleGenerativeAI:
-    return ChatGoogleGenerativeAI(
-        model=model,
-        max_output_tokens=max_tokens,
-        google_api_key=api_key,
-        convert_system_message_to_human=True
-    )
-
-default_model_config = partial(init_chat_model, model="models/gemini-2.5-flash", max_tokens=2048, api_key=get_api_key_for_gemini())
 
 async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "__end__"]]:
     configurable = Configuration.from_runnable_config(config)
@@ -103,7 +93,6 @@ async def write_research_brief(state: AgentState, config: RunnableConfig)-> Comm
             date=get_today_str()
         ))
     ])
-    print(response.research_brief)
 
     return Command(
         goto="research_supervisor", 
@@ -114,7 +103,8 @@ async def write_research_brief(state: AgentState, config: RunnableConfig)-> Comm
                 "value": [
                     SystemMessage(content=lead_researcher_prompt.format(
                         date=get_today_str(),
-                        max_concurrent_research_units=configurable.max_concurrent_research_units
+                        max_concurrent_research_units=configurable.max_concurrent_research_units,
+                        max_researcher_iterations=configurable.max_researcher_iterations
                     )),
                     HumanMessage(content=response.research_brief)
                 ]
@@ -124,16 +114,21 @@ async def write_research_brief(state: AgentState, config: RunnableConfig)-> Comm
 
 
 async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[Literal["supervisor_tools"]]:
+    supervisor_messages = state.get("supervisor_messages", [])
+
+    if supervisor_messages and getattr(supervisor_messages[-1], "tool_calls", None):
+        return Command(goto="supervisor_tools", update={})
+    
     configurable = Configuration.from_runnable_config(config)
     model = default_model_config()
-    lead_researcher_tools = [ConductResearch, ResearchComplete]
+    lead_researcher_tools = [ConductResearch, ResearchComplete, think_tool]
     research_model = model.bind_tools(lead_researcher_tools).with_retry(
             stop_after_attempt=configurable.max_structured_output_retries
         ).with_config({
             "tags": ["langsmith:nostream"]
         })
-    supervisor_messages = state.get("supervisor_messages", [])
     response = await research_model.ainvoke(supervisor_messages)
+
     return Command(
         goto="supervisor_tools",
         update={
@@ -148,11 +143,8 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
     supervisor_messages = state.get("supervisor_messages", [])
     research_iterations = state.get("research_iterations", 0)
     most_recent_message = supervisor_messages[-1]
-    # Exit Criteria
-    # 1. We have exceeded our max guardrail research iterations
-    # 2. No tool calls were made by the supervisor
-    # 3. The most recent message contains a ResearchComplete tool call and there is only one tool call in the message
-    exceeded_allowed_iterations = research_iterations >= configurable.max_researcher_iterations
+
+    exceeded_allowed_iterations = research_iterations > configurable.max_researcher_iterations
     no_tool_calls = not most_recent_message.tool_calls
     research_complete_tool_call = any(tool_call["name"] == "ResearchComplete" for tool_call in most_recent_message.tool_calls)
     if exceeded_allowed_iterations or no_tool_calls or research_complete_tool_call:
@@ -163,7 +155,6 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
                 "research_brief": state.get("research_brief", "")
             }
         )
-    # Otherwise, conduct research and gather results.
     try:
         all_conduct_research_calls = [tool_call for tool_call in most_recent_message.tool_calls if tool_call["name"] == "ConductResearch"]
         conduct_research_calls = all_conduct_research_calls[:configurable.max_concurrent_research_units]
@@ -238,15 +229,13 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
                 mode="http",
                 url="http://localhost:8000",
                 path_prefix="/mcp/",
-                tools=["smart_search", "tavily_search"],
+                tools=["tavily_search"],
             ),
         },
     }
 
     researcher_messages = state.get("researcher_messages", [])
     tools = await get_all_tools(updated_config)
-    
-    print([t.name for t in tools])
 
     if not tools:
         raise ValueError("No tools found to conduct research: Please configure either your search API or add MCP tools to your configuration.")
@@ -275,7 +264,6 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
     tools_dict = {tool.name: tool for tool in tools}
     response: AIMessage = await research_model.ainvoke(prompt_messages)
     tool_calls = getattr(response, "tool_calls", None)
-    print("Tool calls:", tool_calls)
     tool_call_log = []
 
     if tool_calls:
@@ -422,7 +410,6 @@ async def check_loop_condition(state: AgentState, config: RunnableConfig) -> Com
     ) if subagents else False
 
     if loop_count >= 3:
-        print("Max retry reached. Exiting loop.")
         return Command(goto="final_report_generation")
 
     if enough_findings and enough_subagents and subagent_covered:
